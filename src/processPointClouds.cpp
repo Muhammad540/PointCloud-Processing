@@ -22,20 +22,61 @@ void ProcessPointClouds<PointT>::numPoints(typename pcl::PointCloud<PointT>::Ptr
 
 
 template<typename PointT>
-typename pcl::PointCloud<PointT>::Ptr ProcessPointClouds<PointT>::FilterCloud(typename pcl::PointCloud<PointT>::Ptr cloud, float filterRes, Eigen::Vector4f minPoint, Eigen::Vector4f maxPoint)
+typename pcl::PointCloud<PointT>::Ptr ProcessPointClouds<PointT>::FilterCloud(typename pcl::PointCloud<PointT>::Ptr cloud, 
+     float filterRes, Eigen::Vector4f minPoint, Eigen::Vector4f maxPoint)
 {
-
+    // Reference: https://pointclouds.org/documentation/tutorials/voxel_grid.html and https://pointclouds.org/documentation/classpcl_1_1_crop_box_3_01pcl_1_1_p_c_l_point_cloud2_01_4.html
     // Time segmentation process
     auto startTime = std::chrono::steady_clock::now();
 
     // TODO:: Fill in the function to do voxel grid point reduction and region based filtering
+    std::cerr << "PointCloud before filtering: " << cloud->width * cloud->height 
+              << " data points (" << pcl::getFieldsList (*cloud) << ")." << std::endl;
+    
+    // Voxel Grid Downsampling
+    typename pcl::PointCloud<PointT>::Ptr filteredCloud = std::make_shared<pcl::PointCloud<PointT>>();
+    pcl::VoxelGrid<PointT> sor;
+    sor.setInputCloud(cloud);
+    sor.setLeafSize(filterRes, filterRes, filterRes);
+    sor.filter(*filteredCloud);
+    
+    // Crop to region of interest
+    typename pcl::PointCloud<PointT>::Ptr croppedCloud = std::make_shared<pcl::PointCloud<PointT>>();
+    pcl::CropBox<PointT> cropBoxFilter;
+    cropBoxFilter.setInputCloud(filteredCloud);
+    cropBoxFilter.setMin(minPoint);
+    cropBoxFilter.setMax(maxPoint);
+    cropBoxFilter.filter(*croppedCloud);
+
+    // Remove roof points
+    // USing True to enable index extraction
+    pcl::CropBox<PointT> roofFilter(true);  
+    roofFilter.setInputCloud(croppedCloud);
+    roofFilter.setMin(Eigen::Vector4f(-1.5, -1.7, -1, 1));
+    roofFilter.setMax(Eigen::Vector4f(2.6, 1.7, -0.4, 1));
+    
+    // Get roof indices (points to remove)
+    pcl::IndicesPtr roofIndices(new pcl::Indices);
+    // This gets the indices, not the points
+    roofFilter.filter(*roofIndices);  
+    
+    // Remove roof points
+    // Basic idea is: get the indices first and then use ExtractIndices to create the cloud with indices removed
+    pcl::ExtractIndices<PointT> extract;
+    extract.setInputCloud(croppedCloud);
+    extract.setIndices(roofIndices);
+    // Keep everything EXCEPT roof points
+    extract.setNegative(true); 
+    extract.filter(*croppedCloud);
+
+    std::cerr << "PointCloud after filtering: " << croppedCloud->width * croppedCloud->height 
+              << " data points (" << pcl::getFieldsList(*croppedCloud) << ")." << std::endl;
 
     auto endTime = std::chrono::steady_clock::now();
     auto elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime);
     std::cout << "filtering took " << elapsedTime.count() << " milliseconds" << std::endl;
 
-    return cloud;
-
+    return croppedCloud;
 }
 
 
@@ -163,7 +204,7 @@ Box ProcessPointClouds<PointT>::BoundingBox(typename pcl::PointCloud<PointT>::Pt
 template<typename PointT>
 BoxQ ProcessPointClouds<PointT>::BoundingBoxQ(typename pcl::PointCloud<PointT>::Ptr cluster)
 {
-    // Reference: https://codextechnicanum.blogspot.com/2015/04/find-minimum-oriented-bounding-box-of.html
+
     // Find bounding box for one of the clusters using pca
     // PCA is used to find the minimum oriented bounding box of the cluster cloud
     // The PCA is done on the covariance matrix of the cluster cloud
