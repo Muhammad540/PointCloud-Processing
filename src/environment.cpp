@@ -91,17 +91,16 @@ void simpleHighway(pcl::visualization::PCLVisualizer::Ptr& viewer)
     }
 }
 
-void cityBlock(pcl::visualization::PCLVisualizer::Ptr& viewer) {
+//NOTE: input pcl is const& for better mem efficiency
+void cityBlock(pcl::visualization::PCLVisualizer::Ptr& viewer, ProcessPointClouds<pcl::PointXYZI> *pointProcessorI,
+    const pcl::PointCloud<pcl::PointXYZI>::Ptr& inputCloud,
+    bool renderSegmentation = false, bool renderBoxes = true, bool renderClusters = true, bool renderBoxesQ = false) {
     // ----------------------------------------------------
     // -----Open 3D viewer and display City Block     -----
     // ----------------------------------------------------
-    bool renderBoxes = true;
-    bool renderClusters = true;
-    bool renderBoxesQ = false;
-    bool renderSegmentation = false;
 
-    ProcessPointClouds<pcl::PointXYZI> *pointProcessorI = new ProcessPointClouds<pcl::PointXYZI>();
-    pcl::PointCloud<pcl::PointXYZI>::Ptr inputCloud = pointProcessorI->loadPcd("../src/sensors/data/pcd/data_1/0000000000.pcd");
+    // ProcessPointClouds<pcl::PointXYZI> *pointProcessorI = new ProcessPointClouds<pcl::PointXYZI>();
+    // pcl::PointCloud<pcl::PointXYZI>::Ptr inputCloud = pointProcessorI->loadPcd("../src/sensors/data/pcd/data_1/0000000000.pcd");
     // NOTE: if the color is not specified in the renderPointCloud it will default to using the intensity color coding
     // Original Point cloud 
     //renderPointCloud(viewer, inputCloud, "inputCloud");
@@ -173,18 +172,42 @@ int main (int argc, char** argv)
 {
     std::cout << "starting enviroment" << std::endl;
     bool simulation = false;
+    bool streaming = true;
 
     pcl::visualization::PCLVisualizer::Ptr viewer (new pcl::visualization::PCLVisualizer ("3D Viewer"));
+    // streaming configuration 
+    ProcessPointClouds<pcl::PointXYZI> *pointProcessorI = new ProcessPointClouds<pcl::PointXYZI>();
+    std::vector<boost::filesystem::path> stream = pointProcessorI->streamPcd("../src/sensors/data/pcd/data_1");
+    auto streamIterator = stream.begin();
+    pcl::PointCloud<pcl::PointXYZI>::Ptr inputCloudI;
+
     CameraAngle setAngle = XY;
     initCamera(setAngle, viewer);
-    if (simulation) {
-        simpleHighway(viewer);
-    } else {
-        cityBlock(viewer);
+    if (!streaming){
+        if (simulation) {
+            simpleHighway(viewer);
+        } else {
+            // Fix this later to support non-streaming mode
+            // cityBlock(viewer);
+        }
     }
 
     while (!viewer->wasStopped ())
     {
+        // clear the viewer 
+        viewer->removeAllPointClouds();
+        viewer->removeAllShapes();
+
+        // load pcd and run obstacle detection pipeline
+        inputCloudI = pointProcessorI->loadPcd((*streamIterator).string());
+        cityBlock(viewer, pointProcessorI, inputCloudI, false, true, true, false);
+
+        // increment the stream iterator
+        streamIterator++;
+        if (streamIterator == stream.end()) {
+            streamIterator = stream.begin();
+        }
+
         viewer->spinOnce ();
     } 
 }
