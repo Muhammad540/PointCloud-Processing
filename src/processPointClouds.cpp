@@ -42,29 +42,31 @@ typename pcl::PointCloud<PointT>::Ptr ProcessPointClouds<PointT>::FilterCloud(ty
     
     // Crop to region of interest
     typename pcl::PointCloud<PointT>::Ptr croppedCloud = std::make_shared<pcl::PointCloud<PointT>>();
-    pcl::CropBox<PointT> cropBoxFilter;
+    pcl::CropBox<PointT> cropBoxFilter(true);
     cropBoxFilter.setInputCloud(filteredCloud);
     cropBoxFilter.setMin(minPoint);
     cropBoxFilter.setMax(maxPoint);
     cropBoxFilter.filter(*croppedCloud);
 
+    std::vector<int> indices;
     // Remove roof points
     // USing True to enable index extraction
     pcl::CropBox<PointT> roofFilter(true);  
     roofFilter.setInputCloud(croppedCloud);
     roofFilter.setMin(Eigen::Vector4f(-1.5, -1.7, -1, 1));
     roofFilter.setMax(Eigen::Vector4f(2.6, 1.7, -0.4, 1));
-    
-    // Get roof indices (points to remove)
-    pcl::IndicesPtr roofIndices(new pcl::Indices);
-    // This gets the indices, not the points
-    roofFilter.filter(*roofIndices);  
+    roofFilter.filter(indices);  
+
+    pcl::PointIndices::Ptr roofInliers(new pcl::PointIndices);
+    for (int index : indices){
+        roofInliers->indices.push_back(index);
+    }
     
     // Remove roof points
     // Basic idea is: get the indices first and then use ExtractIndices to create the cloud with indices removed
     pcl::ExtractIndices<PointT> extract;
     extract.setInputCloud(croppedCloud);
-    extract.setIndices(roofIndices);
+    extract.setIndices(roofInliers);
     // Keep everything EXCEPT roof points
     extract.setNegative(true); 
     extract.filter(*croppedCloud);

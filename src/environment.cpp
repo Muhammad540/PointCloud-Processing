@@ -1,5 +1,4 @@
 // A simple 3d highway enviroment using PCL for exploring self-driving car sensors
-
 #include "sensors/lidar.h"
 #include "render/render.h"
 #include "processPointClouds.h"
@@ -7,6 +6,7 @@
 #include "processPointClouds.cpp"
 
 using segmentedCloudPair = std::pair<pcl::PointCloud<pcl::PointXYZ>::Ptr, pcl::PointCloud<pcl::PointXYZ>::Ptr>;
+using segmentedCloudI = std::pair<pcl::PointCloud<pcl::PointXYZI>::Ptr, pcl::PointCloud<pcl::PointXYZI>::Ptr>;
 
 std::vector<Car> initHighway(bool renderScene, pcl::visualization::PCLVisualizer::Ptr& viewer)
 {
@@ -92,17 +92,57 @@ void simpleHighway(pcl::visualization::PCLVisualizer::Ptr& viewer)
 }
 
 void cityBlock(pcl::visualization::PCLVisualizer::Ptr& viewer) {
-  // ----------------------------------------------------
-  // -----Open 3D viewer and display City Block     -----
-  // ----------------------------------------------------
+    // ----------------------------------------------------
+    // -----Open 3D viewer and display City Block     -----
+    // ----------------------------------------------------
+    bool renderBoxes = true;
+    bool renderClusters = true;
+    bool renderBoxesQ = false;
+    bool renderSegmentation = false;
 
-  ProcessPointClouds<pcl::PointXYZI> *pointProcessorI = new ProcessPointClouds<pcl::PointXYZI>();
-  pcl::PointCloud<pcl::PointXYZI>::Ptr inputCloud = pointProcessorI->loadPcd("../src/sensors/data/pcd/data_1/0000000000.pcd");
-  // NOTE: if the color is not specified in the renderPointCloud it will default to using the intensity color coding
-  renderPointCloud(viewer, inputCloud, "inputCloud");
-  // filter the point cloud (crop the cloud to a roi and downsample the cloud)
-  pcl::PointCloud<pcl::PointXYZI>::Ptr filteredCloud = pointProcessorI->FilterCloud(inputCloud, 0.3, Eigen::Vector4f(-10, -5, -2, 1), Eigen::Vector4f(30, 7, 1, 1));
-  renderPointCloud(viewer, filteredCloud, "filteredCloud");
+    ProcessPointClouds<pcl::PointXYZI> *pointProcessorI = new ProcessPointClouds<pcl::PointXYZI>();
+    pcl::PointCloud<pcl::PointXYZI>::Ptr inputCloud = pointProcessorI->loadPcd("../src/sensors/data/pcd/data_1/0000000000.pcd");
+    // NOTE: if the color is not specified in the renderPointCloud it will default to using the intensity color coding
+    // Original Point cloud 
+    //renderPointCloud(viewer, inputCloud, "inputCloud");
+    // filter the point cloud (crop the cloud to a roi and downsample the cloud)
+    pcl::PointCloud<pcl::PointXYZI>::Ptr filteredCloud = pointProcessorI->FilterCloud(inputCloud, 0.2, Eigen::Vector4f(-10, -5, -2, 1), Eigen::Vector4f(30, 7, 1, 1));
+    // Segment the filtered cloud into obstacle and plane clouds
+    segmentedCloudI cloudPair = pointProcessorI->SegmentPlane(filteredCloud, 1000, 0.3);
+    if (renderSegmentation) {
+      // Render the obstacle and plane clouds
+      renderPointCloud(viewer, cloudPair.first, "obstacleCloud", Color(1,0,0));
+      renderPointCloud(viewer, cloudPair.second, "planeCloud", Color(0,1,0));
+    }
+    // Cluster the obstacle cloud
+    std::vector<pcl::PointCloud<pcl::PointXYZI>::Ptr> clusters = pointProcessorI->Clustering(cloudPair.first, 1.0, 3, 1000);
+    int clusterId = 0;
+    // Color palette for more clusters
+    std::vector<Color> colors = {
+        Color(1,0,0), Color(0,1,0), Color(0,0,1),
+        Color(1,1,0), Color(1,0,1), Color(0,1,1),
+        Color(0.5,0.5,0), Color(0.5,0,0.5), Color(0,0.5,0.5)
+    };
+    // assign a unique color and a box to each cluster and render it
+    for (auto cluster : clusters) {
+        Color clusterColor = colors[clusterId % colors.size()];
+        if (renderClusters) {
+            std::cout << "cluster size: ";
+            pointProcessorI->numPoints(cluster);
+            renderPointCloud(viewer, cluster, "cluster" + std::to_string(clusterId), clusterColor);
+        }
+        if (renderBoxes) {
+            Box box = pointProcessorI->BoundingBox(cluster);
+            renderBox(viewer, box, clusterId);
+        }
+        if (renderBoxesQ) {
+            BoxQ boxQ = pointProcessorI->BoundingBoxQ(cluster);
+            renderBox(viewer, boxQ, clusterId);
+        }
+        clusterId++;
+    }
+    // Render the plane cloud
+    renderPointCloud(viewer, cloudPair.second, "planeCloud", Color(0,1,0));
 }
 
 //setAngle: SWITCH CAMERA ANGLE {XY, TopDown, Side, FPS}
